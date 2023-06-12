@@ -1,7 +1,7 @@
 /*******************************************************************************
 
     uBlock Origin - a browser extension to block requests.
-    Copyright (C) 2014-present Raymond Hill
+    Copyright (C) 2017-present Raymond Hill
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,33 +19,23 @@
     Home: https://github.com/gorhill/uBlock
 */
 
-/* jshint esversion:11 */
-
 'use strict';
 
 /******************************************************************************/
 
-/// name css-declarative
-
-/******************************************************************************/
-
-// Important!
-// Isolate from global scope
-(function uBOL_cssDeclarativeImport() {
-
-/******************************************************************************/
-
-// $rulesetId$
-
-const argsList = self.$argsList$;
-
-const hostnamesMap = new Map(self.$hostnamesMap$);
-
-self.declarativeImports = self.declarativeImports || [];
-self.declarativeImports.push({ argsList, hostnamesMap });
-
-/******************************************************************************/
-
-})();
-
-/******************************************************************************/
+export function safeReplace(text, pattern, replacement, count = 1) {
+    const rePattern = typeof pattern === 'string'
+        ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        : pattern;
+    let out = text;
+    for (;;) {
+        const match = rePattern.exec(out);
+        if ( match === null ) { break; }
+        out = out.slice(0, match.index) +
+        replacement +
+        out.slice(match.index + match[0].length);
+        count -= 1;
+        if ( count === 0 ) { break; }
+    }
+    return out;
+}
