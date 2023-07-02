@@ -46,6 +46,7 @@ function safeSelf() {
         return scriptletGlobals.get('safeSelf');
     }
     const safe = {
+        'Object_defineProperty': Object.defineProperty.bind(Object),
         'RegExp': self.RegExp,
         'RegExp_test': self.RegExp.prototype.test,
         'RegExp_exec': self.RegExp.prototype.exec,
@@ -294,7 +295,7 @@ function abortCurrentScriptCore(
         const e = document.currentScript;
         if ( e instanceof HTMLScriptElement === false ) { return; }
         if ( e === thisScript ) { return; }
-        if ( reContext.test(e.src) === false ) { return; }
+        if ( context !== '' && reContext.test(e.src) === false ) { return; }
         if ( log && e.src !== '' ) { safe.uboLog(`matched src: ${e.src}`); }
         const scriptText = getScriptText(e);
         if ( reNeedle.test(scriptText) === false ) { return; }
@@ -355,6 +356,7 @@ function setConstantCore(
     if ( typeof chain !== 'string' ) { return; }
     if ( chain === '' ) { return; }
     const options = details.options || [];
+    const safe = safeSelf();
     function setConstant(chain, cValue) {
         const trappedProp = (( ) => {
             const pos = chain.lastIndexOf('.');
@@ -363,13 +365,12 @@ function setConstantCore(
         })();
         if ( trappedProp === '' ) { return; }
         const thisScript = document.currentScript;
-        const objectDefineProperty = Object.defineProperty.bind(Object);
         const cloakFunc = fn => {
-            objectDefineProperty(fn, 'name', { value: trappedProp });
+            safe.Object_defineProperty(fn, 'name', { value: trappedProp });
             const proxy = new Proxy(fn, {
                 defineProperty(target, prop) {
                     if ( prop !== 'toString' ) {
-                        return Reflect.deleteProperty(...arguments);
+                        return Reflect.defineProperty(...arguments);
                     }
                     return true;
                 },
@@ -456,7 +457,7 @@ function setConstantCore(
                 }
             }
             try {
-                objectDefineProperty(owner, prop, {
+                safe.Object_defineProperty(owner, prop, {
                     configurable,
                     get() {
                         if ( prevGetter !== undefined ) {
@@ -709,6 +710,49 @@ function objectPrune(
     return obj;
 }
 
+/******************************************************************************/
+
+builtinScriptlets.push({
+    name: 'set-cookie-helper.fn',
+    fn: setCookieHelper,
+});
+function setCookieHelper(
+    name = '',
+    value = '',
+    expires = '',
+    path = '',
+    options = {},
+) {
+    const cookieExists = (name, value) => {
+        return document.cookie.split(/\s*;\s*/).some(s => {
+            const pos = s.indexOf('=');
+            if ( pos === -1 ) { return false; }
+            if ( s.slice(0, pos) !== name ) { return false; }
+            if ( s.slice(pos+1) !== value ) { return false; }
+            return true;
+        });
+    };
+
+    if ( options.reload && cookieExists(name, value) ) { return; }
+
+    const cookieParts = [ name, '=', value ];
+    if ( expires !== '' ) {
+        cookieParts.push('; expires=', expires);
+    }
+
+    if ( path === '' ) { path = '/'; }
+    else if ( path === 'none' ) { path = ''; }
+    if ( path !== '' && path !== '/' ) { return; }
+    if ( path === '/' ) {
+        cookieParts.push('; path=/');
+    }
+    document.cookie = cookieParts.join('');
+
+    if ( options.reload && cookieExists(name, value) ) {
+        window.location.reload();
+    }
+}
+
 /*******************************************************************************
 
     Injectable scriptlets
@@ -719,7 +763,11 @@ function objectPrune(
 
 builtinScriptlets.push({
     name: 'abort-current-script.js',
-    aliases: [ 'acs.js', 'abort-current-inline-script.js', 'acis.js' ],
+    aliases: [
+        'acs.js',
+        'abort-current-inline-script.js',
+        'acis.js',
+    ],
     fn: abortCurrentScript,
     dependencies: [
         'abort-current-script-core.fn',
@@ -742,7 +790,9 @@ function abortCurrentScript(
 
 builtinScriptlets.push({
     name: 'abort-on-property-read.js',
-    aliases: [ 'aopr.js' ],
+    aliases: [
+        'aopr.js',
+    ],
     fn: abortOnPropertyRead,
     dependencies: [
         'get-exception-token.fn',
@@ -796,7 +846,9 @@ function abortOnPropertyRead(
 
 builtinScriptlets.push({
     name: 'abort-on-property-write.js',
-    aliases: [ 'aopw.js' ],
+    aliases: [
+        'aopw.js',
+    ],
     fn: abortOnPropertyWrite,
     dependencies: [
         'get-exception-token.fn',
@@ -828,7 +880,9 @@ function abortOnPropertyWrite(
 
 builtinScriptlets.push({
     name: 'abort-on-stack-trace.js',
-    aliases: [ 'aost.js' ],
+    aliases: [
+        'aost.js',
+    ],
     fn: abortOnStackTrace,
     dependencies: [
         'get-exception-token.fn',
@@ -934,7 +988,10 @@ function abortOnStackTrace(
 
 builtinScriptlets.push({
     name: 'addEventListener-defuser.js',
-    aliases: [ 'aeld.js' ],
+    aliases: [
+        'aeld.js',
+        'prevent-addEventListener.js',
+    ],
     fn: addEventListenerDefuser,
     dependencies: [
         'get-extra-args.fn',
@@ -1062,7 +1119,9 @@ function evaldataPrune(
 
 builtinScriptlets.push({
     name: 'nano-setInterval-booster.js',
-    aliases: [ 'nano-sib.js' ],
+    aliases: [
+        'nano-sib.js',
+    ],
     fn: nanoSetIntervalBooster,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1111,7 +1170,9 @@ function nanoSetIntervalBooster(
 
 builtinScriptlets.push({
     name: 'nano-setTimeout-booster.js',
-    aliases: [ 'nano-stb.js' ],
+    aliases: [
+        'nano-stb.js',
+    ],
     fn: nanoSetTimeoutBooster,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1161,6 +1222,9 @@ function nanoSetTimeoutBooster(
 
 builtinScriptlets.push({
     name: 'noeval-if.js',
+    aliases: [
+        'prevent-eval-if.js',
+    ],
     fn: noEvalIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1184,6 +1248,9 @@ function noEvalIf(
 
 builtinScriptlets.push({
     name: 'no-fetch-if.js',
+    aliases: [
+        'prevent-fetch.js',
+    ],
     fn: noFetchIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1258,6 +1325,10 @@ function noFetchIf(
 builtinScriptlets.push({
     name: 'refresh-defuser.js',
     fn: refreshDefuser,
+    world: 'ISOLATED',
+    dependencies: [
+        'run-at.fn',
+    ],
 });
 // https://www.reddit.com/r/uBlockOrigin/comments/q0frv0/while_reading_a_sports_article_i_was_redirected/hf7wo9v/
 function refreshDefuser(
@@ -1273,19 +1344,22 @@ function refreshDefuser(
         const ms = Math.max(parseFloat(s) || 0, 0) * 1000;
         setTimeout(( ) => { window.stop(); }, ms);
     };
-    if ( document.readyState === 'loading' ) {
-        document.addEventListener('DOMContentLoaded', defuse, { once: true });
-    } else {
+    runAt(( ) => {
         defuse();
-    }
+    }, 'interactive');
 }
 
 /******************************************************************************/
 
 builtinScriptlets.push({
     name: 'remove-attr.js',
-    aliases: [ 'ra.js' ],
+    aliases: [
+        'ra.js',
+    ],
     fn: removeAttr,
+    dependencies: [
+        'run-at.fn',
+    ],
 });
 function removeAttr(
     token = '',
@@ -1338,21 +1412,22 @@ function removeAttr(
             subtree: true,
         });
     };
-    if ( document.readyState !== 'complete' && /\bcomplete\b/.test(behavior) ) {
-        self.addEventListener('load', start, { once: true });
-    } else if ( document.readyState !== 'loading' || /\basap\b/.test(behavior) ) {
+    runAt(( ) => {
         start();
-    } else {
-        self.addEventListener('DOMContentLoaded', start, { once: true });
-    }
+    }, /\bcomplete\b/.test(behavior) ? 'idle' : 'interactive');
 }
 
 /******************************************************************************/
 
 builtinScriptlets.push({
     name: 'remove-class.js',
-    aliases: [ 'rc.js' ],
+    aliases: [
+        'rc.js',
+    ],
     fn: removeClass,
+    dependencies: [
+        'run-at.fn',
+    ],
 });
 function removeClass(
     token = '',
@@ -1403,20 +1478,19 @@ function removeClass(
             subtree: true,
         });
     };
-    if ( document.readyState !== 'complete' && /\bcomplete\b/.test(behavior) ) {
-        self.addEventListener('load', start, { once: true });
-    } else if ( document.readyState === 'loading' ) {
-        self.addEventListener('DOMContentLoaded', start, { once: true });
-    } else {
+    runAt(( ) => {
         start();
-    }
+    }, /\bcomplete\b/.test(behavior) ? 'idle' : 'interactive');
 }
 
 /******************************************************************************/
 
 builtinScriptlets.push({
     name: 'no-requestAnimationFrame-if.js',
-    aliases: [ 'norafif.js' ],
+    aliases: [
+        'norafif.js',
+        'prevent-requestAnimationFrame.js',
+    ],
     fn: noRequestAnimationFrameIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1451,7 +1525,9 @@ function noRequestAnimationFrameIf(
 
 builtinScriptlets.push({
     name: 'set-constant.js',
-    aliases: [ 'set.js' ],
+    aliases: [
+        'set.js',
+    ],
     fn: setConstant,
     dependencies: [
         'set-constant-core.fn'
@@ -1467,7 +1543,10 @@ function setConstant(
 
 builtinScriptlets.push({
     name: 'no-setInterval-if.js',
-    aliases: [ 'nosiif.js' ],
+    aliases: [
+        'nosiif.js',
+        'prevent-setInterval.js',
+    ],
     fn: noSetIntervalIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1524,7 +1603,11 @@ function noSetIntervalIf(
 
 builtinScriptlets.push({
     name: 'no-setTimeout-if.js',
-    aliases: [ 'nostif.js', 'setTimeout-defuser.js' ],
+    aliases: [
+        'nostif.js',
+        'prevent-setTimeout.js',
+        'setTimeout-defuser.js',
+    ],
     fn: noSetTimeoutIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1648,6 +1731,9 @@ function webrtcIf(
 
 builtinScriptlets.push({
     name: 'no-xhr-if.js',
+    aliases: [
+        'prevent-xhr.js',
+    ],
     fn: noXhrIf,
     dependencies: [
         'pattern-to-regex.fn',
@@ -1715,6 +1801,97 @@ function noXhrIf(
             this.dispatchEvent(new Event('loadend'));
         }
     };
+}
+
+/******************************************************************************/
+
+builtinScriptlets.push({
+    name: 'no-window-open-if.js',
+    aliases: [
+        'nowoif.js',
+        'prevent-window-open.js',
+    ],
+    fn: noWindowOpenIf,
+    dependencies: [
+        'get-extra-args.fn',
+        'pattern-to-regex.fn',
+        'safe-self.fn',
+        'should-log.fn',
+    ],
+});
+function noWindowOpenIf(
+    pattern = '',
+    delay = '',
+    decoy = ''
+) {
+    const targetMatchResult = pattern.startsWith('!') === false;
+    if ( targetMatchResult === false ) {
+        pattern = pattern.slice(1);
+    }
+    const rePattern = patternToRegex(pattern);
+    let autoRemoveAfter = parseInt(delay);
+    if ( isNaN(autoRemoveAfter) ) {
+        autoRemoveAfter = -1;
+    }
+    const extraArgs = getExtraArgs(Array.from(arguments), 3);
+    const safe = safeSelf();
+    const logLevel = shouldLog(extraArgs);
+    const createDecoy = function(tag, urlProp, url) {
+        const decoyElem = document.createElement(tag);
+        decoyElem[urlProp] = url;
+        decoyElem.style.setProperty('height','1px', 'important');
+        decoyElem.style.setProperty('position','fixed', 'important');
+        decoyElem.style.setProperty('top','-1px', 'important');
+        decoyElem.style.setProperty('width','1px', 'important');
+        document.body.appendChild(decoyElem);
+        setTimeout(( ) => { decoyElem.remove(); }, autoRemoveAfter * 1000);
+        return decoyElem;
+    };
+    window.open = new Proxy(window.open, {
+        apply: function(target, thisArg, args) {
+            const haystack = args.join(' ');
+            if ( logLevel ) {
+                safe.uboLog('window.open:', haystack);
+            }
+            if ( rePattern.test(haystack) !== targetMatchResult ) {
+                return Reflect.apply(target, thisArg, args);
+            }
+            if ( autoRemoveAfter < 0 ) { return null; }
+            const decoyElem = decoy === 'obj'
+                ? createDecoy('object', 'data', ...args)
+                : createDecoy('iframe', 'src', ...args);
+            let popup = decoyElem.contentWindow;
+            if ( typeof popup === 'object' && popup !== null ) {
+                Object.defineProperty(popup, 'closed', { value: false });
+            } else {
+                const noopFunc = (function(){}).bind(self);
+                popup = new Proxy(self, {
+                    get: function(target, prop) {
+                        if ( prop === 'closed' ) { return false; }
+                        const r = Reflect.get(...arguments);
+                        if ( typeof r === 'function' ) { return noopFunc; }
+                        return target[prop];
+                    },
+                    set: function() {
+                        return Reflect.set(...arguments);
+                    },
+                });
+            }
+            if ( logLevel ) {
+                popup = new Proxy(popup, {
+                    get: function(target, prop) {
+                        safe.uboLog('window.open / get', prop, '===', target[prop]);
+                        return Reflect.get(...arguments);
+                    },
+                    set: function(target, prop, value) {
+                        safe.uboLog('window.open / set', prop, '=', value);
+                        return Reflect.set(...arguments);
+                    },
+                });
+            }
+            return popup;
+        }
+    });
 }
 
 /******************************************************************************/
@@ -2001,6 +2178,7 @@ function disableNewtabLinks() {
 builtinScriptlets.push({
     name: 'cookie-remover.js',
     fn: cookieRemover,
+    world: 'ISOLATED',
     dependencies: [
         'pattern-to-regex.fn',
     ],
@@ -2182,6 +2360,11 @@ function xmlPrune(
 builtinScriptlets.push({
     name: 'm3u-prune.js',
     fn: m3uPrune,
+    dependencies: [
+        'get-extra-args.fn',
+        'safe-self.fn',
+        'should-log.fn',
+    ],
 });
 // https://en.wikipedia.org/wiki/M3U
 function m3uPrune(
@@ -2189,6 +2372,9 @@ function m3uPrune(
     urlPattern = ''
 ) {
     if ( typeof m3uPattern !== 'string' ) { return; }
+    const options = getExtraArgs(Array.from(arguments), 2);
+    const logLevel = shouldLog(options);
+    const safe = safeSelf();
     const regexFromArg = arg => {
         if ( arg === '' ) { return /^/; }
         const match = /^\/(.+)\/([gms]*)$/.exec(arg);
@@ -2238,16 +2424,39 @@ function m3uPrune(
             for (;;) {
                 const match = reM3u.exec(text);
                 if ( match === null ) { break; }
-                const before = text.slice(0, match.index);
-                if ( before.length === 0 || /[\n\r]+\s*$/.test(before) ) {
-                    const after = text.slice(match.index + match[0].length);
-                    if ( after.length === 0 || /^\s*[\n\r]+/.test(after) ) {
-                        text = before.trim() + '\n' + after.trim();
-                        reM3u.lastIndex = before.length + 1;
+                let discard = match[0];
+                let before = text.slice(0, match.index);
+                if (
+                    /^[\n\r]+/.test(discard) === false &&
+                    /[\n\r]+$/.test(before) === false
+                ) {
+                    const startOfLine = /[^\n\r]+$/.exec(before);
+                    if ( startOfLine !== null ) {
+                        before = before.slice(0, startOfLine.index);
+                        discard = startOfLine[0] + discard;
                     }
+                }
+                let after = text.slice(match.index + match[0].length);
+                if (
+                    /[\n\r]+$/.test(discard) === false &&
+                    /^[\n\r]+/.test(after) === false
+                ) {
+                    const endOfLine = /^[^\n\r]+/.exec(after);
+                    if ( endOfLine !== null ) {
+                        after = after.slice(endOfLine.index);
+                        discard += discard + endOfLine[0];
+                    }
+                }
+                text = before.trim() + '\n' + after.trim();
+                reM3u.lastIndex = before.length + 1;
+                if ( logLevel ) {
+                    safe.uboLog('m3u-prune: discarding\n',
+                        discard.split(/\n+/).map(s => `\t${s}`).join('\n')
+                    );
                 }
                 if ( reM3u.global === false ) { break; }
             }
+            return text;
         }
         const lines = text.split(/\n\r|\n|\r/);
         for ( let i = 0; i < lines.length; i++ ) {
@@ -2535,7 +2744,9 @@ function spoofCSS(
 
 builtinScriptlets.push({
     name: 'remove-node-text.js',
-    aliases: [ 'rmnt.js' ],
+    aliases: [
+        'rmnt.js',
+    ],
     fn: removeNodeText,
     world: 'ISOLATED',
     dependencies: [
@@ -2548,6 +2759,108 @@ function removeNodeText(
     ...extraArgs
 ) {
     replaceNodeTextCore(nodeName, '', '', 'condition', condition || '', ...extraArgs);
+}
+
+/*******************************************************************************
+ * 
+ * set-cookie.js
+ * 
+ * Set specified cookie to a specific value.
+ * 
+ * Reference:
+ * https://github.com/AdguardTeam/Scriptlets/blob/master/src/scriptlets/set-cookie.js
+ * 
+ **/
+
+builtinScriptlets.push({
+    name: 'set-cookie.js',
+    fn: setCookie,
+    world: 'ISOLATED',
+    dependencies: [
+        'get-extra-args.fn',
+        'set-cookie-helper.fn',
+    ],
+});
+function setCookie(
+    name = '',
+    value = '',
+    path = ''
+) {
+    if ( name === '' ) { return; }
+    name = encodeURIComponent(name);
+
+    const validValues = new Set([
+        'true', 'True',
+        'false', 'False',
+        'yes', 'Yes', 'y', 'Y',
+        'no', 'No', 'n', 'N',
+        'ok', 'OK',
+        'Accept', 'Reject',
+    ]);
+    if ( validValues.has(value) === false ) {
+        if ( /^\d+$/.test(value) === false ) { return; }
+        const n = parseInt(value, 10);
+        if ( n > 15 ) { return; }
+    }
+    value = encodeURIComponent(value);
+
+    setCookieHelper(
+        name,
+        value,
+        '',
+        path,
+        getExtraArgs(Array.from(arguments), 3)
+    );
+}
+
+/*******************************************************************************
+ * 
+ * set-local-storage-item.js
+ * 
+ * Set a local storage entry to a specific, allowed value.
+ * 
+ * Reference:
+ * https://github.com/AdguardTeam/Scriptlets/blob/master/src/scriptlets/set-local-storage-item.js
+ * 
+ **/
+
+builtinScriptlets.push({
+    name: 'set-local-storage-item.js',
+    fn: setLocalStorageItem,
+    world: 'ISOLATED',
+});
+function setLocalStorageItem(
+    key = '',
+    value = ''
+) {
+    if ( key === '' ) { return; }
+
+    const validValues = [
+        '',
+        'undefined', 'null',
+        'false', 'true',
+        'yes', 'no',
+        '{}', '[]', '""',
+        '$remove$',
+    ];
+    let actualValue;
+    if ( validValues.includes(value) ) {
+        actualValue = value;
+    } else if ( /^\d+$/.test(value) ) {
+        actualValue = parseInt(value, 10);
+        if ( actualValue > 32767 ) { return; }
+    } else {
+        return;
+    }
+
+    try {
+        if ( actualValue === '$remove$' ) {
+            self.localStorage.removeItem(key);
+        } else {
+            self.localStorage.setItem(key, `${actualValue}`);
+        }
+    } catch(ex) {
+    }
 }
 
 /*******************************************************************************
@@ -2589,7 +2902,9 @@ function removeNodeText(
 builtinScriptlets.push({
     name: 'replace-node-text.js',
     requiresTrust: true,
-    aliases: [ 'rpnt.js', 'sed.js' /* to be removed */ ],
+    aliases: [
+        'rpnt.js',
+    ],
     fn: replaceNodeText,
     world: 'ISOLATED',
     dependencies: [
@@ -2617,7 +2932,9 @@ function replaceNodeText(
 builtinScriptlets.push({
     name: 'trusted-set-constant.js',
     requiresTrust: true,
-    aliases: [ 'trusted-set.js' ],
+    aliases: [
+        'trusted-set.js',
+    ],
     fn: trustedSetConstant,
     dependencies: [
         'set-constant-core.fn'
@@ -2627,6 +2944,105 @@ function trustedSetConstant(
     ...args
 ) {
     setConstantCore(true, ...args);
+}
+
+/*******************************************************************************
+ * 
+ * trusted-set-cookie.js
+ * 
+ * Set specified cookie to an arbitrary value.
+ * 
+ * Reference:
+ * https://github.com/AdguardTeam/Scriptlets/blob/master/src/scriptlets/trusted-set-cookie.js#L23
+ * 
+ **/
+
+builtinScriptlets.push({
+    name: 'trusted-set-cookie.js',
+    requiresTrust: true,
+    fn: trustedSetCookie,
+    world: 'ISOLATED',
+    dependencies: [
+        'get-extra-args.fn',
+        'set-cookie-helper.fn',
+    ],
+});
+function trustedSetCookie(
+    name = '',
+    value = '',
+    offsetExpiresSec = '',
+    path = ''
+) {
+    if ( name === '' ) { return; }
+
+    const time = new Date();
+
+    if ( value === '$now$' ) {
+        value = Date.now();
+    } else if ( value === '$currentDate$' ) {
+        value = time.toUTCString();
+    }
+
+    let expires = '';
+    if ( offsetExpiresSec !== '' ) {
+        if ( offsetExpiresSec === '1day' ) {
+            time.setDate(time.getDate() + 1);
+        } else if ( offsetExpiresSec === '1year' ) {
+            time.setFullYear(time.getFullYear() + 1);
+        } else {
+            if ( /^\d+$/.test(offsetExpiresSec) === false ) { return; }
+            time.setSeconds(time.getSeconds() + parseInt(offsetExpiresSec, 10));
+        }
+        expires = time.toUTCString();
+    }
+
+    setCookieHelper(
+        name,
+        value,
+        expires,
+        path,
+        getExtraArgs(Array.from(arguments), 4)
+    );
+}
+
+/*******************************************************************************
+ * 
+ * trusted-set-local-storage-item.js
+ * 
+ * Set a local storage entry to an arbitrary value.
+ * 
+ * Reference:
+ * https://github.com/AdguardTeam/Scriptlets/blob/master/src/scriptlets/trusted-set-local-storage-item.js
+ * 
+ **/
+
+builtinScriptlets.push({
+    name: 'trusted-set-local-storage-item.js',
+    requiresTrust: true,
+    fn: trustedSetLocalStorageItem,
+    world: 'ISOLATED',
+});
+function trustedSetLocalStorageItem(
+    key = '',
+    value = ''
+) {
+    if ( key === '' ) { return; }
+
+    let actualValue = value;
+    if ( value === '$now$' ) {
+        actualValue = Date.now();
+    } else if ( value === '$currentDate$' ) {
+        actualValue = `${Date()}`;
+    }
+
+    try {
+        if ( actualValue === '$remove$' ) {
+            self.localStorage.removeItem(key);
+        } else {
+            self.localStorage.setItem(key, `${actualValue}`);
+        }
+    } catch(ex) {
+    }
 }
 
 /******************************************************************************/

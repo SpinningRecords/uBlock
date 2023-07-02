@@ -53,16 +53,21 @@ const hashFromStr = (type, s) => {
 // dependencies
 
 const rePlainSelector = /^[#.][\w\\-]+/;
+const rePlainSelectorEx = /^[^#.\[(]+([#.][\w-]+)|([#.][\w-]+)$/;
 const rePlainSelectorEscaped = /^[#.](?:\\[0-9A-Fa-f]+ |\\.|\w|-)+/;
 const reEscapeSequence = /\\([0-9A-Fa-f]+ |.)/g;
 
 const keyFromSelector = selector => {
+    let key = '';
     let matches = rePlainSelector.exec(selector);
-    if ( matches === null ) { return; }
-    let key = matches[0];
-    if ( key.indexOf('\\') === -1 ) {
-        return key;
+    if ( matches ) {
+        key = matches[0];
+    } else {
+        matches = rePlainSelectorEx.exec(selector);
+        if ( matches === null ) { return; }
+        key = matches[1] || matches[2];
     }
+    if ( key.indexOf('\\') === -1 ) { return key; }
     matches = rePlainSelectorEscaped.exec(selector);
     if ( matches === null ) { return; }
     key = '';
@@ -96,20 +101,7 @@ function addExtendedToDNR(context, parser) {
             context.scriptletFilters = new Map();
         }
         const exception = parser.isException();
-        const root = parser.getBranchFromType(sfp.NODE_TYPE_EXT_PATTERN_SCRIPTLET);
-        const walker = parser.getWalker(root);
-        const args = [];
-        for ( let node = walker.next(); node !== 0; node = walker.next() ) {
-            switch ( parser.getNodeType(node) ) {
-                case sfp.NODE_TYPE_EXT_PATTERN_SCRIPTLET_TOKEN:
-                case sfp.NODE_TYPE_EXT_PATTERN_SCRIPTLET_ARG:
-                    args.push(parser.getNodeString(node));
-                    break;
-                default:
-                    break;
-            }
-        }
-        walker.dispose();
+        const args = parser.getScriptletArgs();
         const argsToken = JSON.stringify(args);
         for ( const { hn, not, bad } of parser.getExtFilterDomainIterator() ) {
             if ( bad ) { continue; }
@@ -117,6 +109,9 @@ function addExtendedToDNR(context, parser) {
             let details = context.scriptletFilters.get(argsToken);
             if ( details === undefined ) {
                 context.scriptletFilters.set(argsToken, details = { args });
+                if ( context.isTrusted ) {
+                    details.isTrusted = true;
+                }
             }
             if ( not ) {
                 if ( details.excludeMatches === undefined ) {
@@ -241,6 +236,15 @@ function addToDNR(context, list) {
         }
 
         parser.parse(line);
+
+        if ( parser.isComment() ) {
+            if ( line === `!#trusted on ${context.secret}` ) {
+                context.isTrusted = true;
+            } else if ( line === `!#trusted off ${context.secret}` ) {
+                context.isTrusted = false;
+            }
+            continue;
+        }
 
         if ( parser.isFilter() === false ) { continue; }
         if ( parser.hasError() ) { continue; }
